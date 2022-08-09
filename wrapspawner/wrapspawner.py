@@ -42,17 +42,17 @@ except ImportError:
 
 class ProfilesFilter:
     
-    def perform_filter(self, default_profiles, user):
+    def perform_filter(default_profiles, user):
         pass
         
 class DummyFilter(ProfilesFilter):
 
-    def perform_filter(self, default_profiles, user):
+    def perform_filter(default_profiles, user):
         return [x[:4] for x in default_profiles]
 
 class UnixGroupFilter(ProfilesFilter):
 
-    def perform_filter(self, default_profiles, user):
+    def perform_filter(default_profiles, user):
         import grp
         profiles = []
         for p in default_profiles:
