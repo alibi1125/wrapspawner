@@ -39,6 +39,44 @@ try:
 except ImportError:
     pass
 
+
+class ProfilesFilter:
+    
+    def perform_filter(self, default_profiles, user):
+        pass
+        
+class DummyFilter(ProfilesFilter):
+
+    def perform_filter(self, default_profiles, user):
+        return [x[:4] for x in default_profiles]
+
+class UnixGroupFilter(ProfilesFilter):
+
+    def perform_filter(self, default_profiles, user):
+        import grp
+        profiles = []
+        for p in default_profiles:
+            for group in p[4]:
+                # Stop early if the group spec is the wildcard `*`.
+                if group == '*':
+                    profiles.append(p)
+                    break
+                try:
+                    # grp.getgrnam returns a struct that includes a list
+                    # containing the names of all group members as its 3rd
+                    # entry.
+                    members = grp.getgrnam(group)[3]
+                except KeyError:
+                    # We land here if the group could not be found.  Warn
+                    # about the incident but, apart from that, continue.
+                    members = []
+                # We can stop scanning groups when we found the user in one
+                # of them.
+                if user in members:
+                    profiles.append(p[:4])
+                    break
+        return profiles
+
 # Utility to create dummy Futures to return values through yields
 def _yield_val(x=None):
     f = concurrent.Future()
@@ -146,21 +184,6 @@ class WrapSpawner(Spawner):
                 return self.child_spawner.progress
             else:
                 raise RuntimeError("No child spawner yet exists - can not get progress yet")
-
-    # Manually link server attribute since it is not a traitlet
-
-    @property
-    def server(self):
-        if not self.child_spawner:
-            self.construct_child()
-        return self.child_spawner.server
-
-    @server.setter
-    def server(self, server):
-        if not self.child_spawner:
-            self.construct_child()
-        self.child_spawner.server = server
-
 
 class ProfilesSpawner(WrapSpawner):
 
@@ -280,8 +303,9 @@ class FilteredSpawner(ProfilesSpawner):
         )
 
     filterclass = Type(
-        klass = ProfilesFilter
-        default_value = DummyFilter
+        klass = ProfilesFilter,
+        default_value = DummyFilter,
+        config = True
         )
 
     @property
@@ -357,44 +381,6 @@ class DockerProfilesSpawner(ProfilesSpawner):
         temp_keys[0]['first'] = self.first_template
         text = ''.join([ self.input_template.format(**tk) for tk in temp_keys ])
         return self.form_template.format(input_template=text)
-
-
-class ProfilesFilter:
-    
-    def perform_filter(self, default_profiles, user):
-        pass
-        
-class DummyFilter(ProfilesFilter):
-
-    def perform_filter(self, default_profiles, user):
-        return [x[:4] for x in default_profiles]
-
-class UnixGroupFilter(ProfilesFilter):
-
-    def perform_filter(self, default_profiles, user):
-        import grp
-        profiles = []
-        for p in default_profiles:
-            for group in p[4]:
-                # Stop early if the group spec is the wildcard `*`.
-                if group == '*':
-                    profiles.append(p)
-                    break
-                try:
-                    # grp.getgrnam returns a struct that includes a list
-                    # containing the names of all group members as its 3rd
-                    # entry.
-                    members = grp.getgrnam(group)[3]
-                except KeyError:
-                    # We land here if the group could not be found.  Warn
-                    # about the incident but, apart from that, continue.
-                    members = []
-                # We can stop scanning groups when we found the user in one
-                # of them.
-                if user in members:
-                    profiles.append(p[:4])
-                    break
-        return profiles
 
 
 # vim: set ai expandtab softtabstop=4:
