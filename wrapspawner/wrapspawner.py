@@ -255,6 +255,39 @@ class ProfilesSpawner(WrapSpawner):
         super().clear_state()
         self.child_profile = ''
 
+class FilteredSpawner(ProfilesSpawner):
+
+    """FilteredSpawner - leverages the Spawner options form feature to allow user-driven
+        configuration of Spawner classes while permitting:
+        1) configuration of Spawner classes that don't natively implement options_form
+        2) administrator control of allowed configuration changes
+        3) runtime choice of which Spawner backend to launch
+        4) filtered selection of profiles depending on current user
+    """
+
+    default_profiles = List(
+        trait = Tuple( Unicode(), Unicode(), Type(Spawner), Dict(), List(Unicode()) ),
+        default_value = [ ( 'Local Notebook Server', 'local', LocalProcessSpawner,
+                            {'start_timeout': 15, 'http_timeout': 10}, ['*'] ) ],
+        minlen = 1,
+        config = True,
+        help = """List of profiles to offer for selection. Signature is:
+            List(Tuple( Unicode, Unicode, Type(Spawner), Dict, Tuple(Unicode) )) corresponding to
+            profile display name, unique key, Spawner class, dictionary of spawner config options,
+            Tuple of allowed user groups (`*` is the wildcard for common profiles)
+
+            The first three values will be exposed in the input_template as {display}, {key}, and {type}"""
+        )
+
+    filterclass = Type(
+        klass = ProfilesFilter
+        default_value = DummyFilter
+        )
+
+    @property
+    def profiles(self):
+        return self.filterclass.perform_filter(self.default_profiles, self.user.name)
+
 class DockerProfilesSpawner(ProfilesSpawner):
 
     """DockerProfilesSpawner - leverages ProfilesSpawner to dynamically create DockerSpawner
@@ -324,6 +357,44 @@ class DockerProfilesSpawner(ProfilesSpawner):
         temp_keys[0]['first'] = self.first_template
         text = ''.join([ self.input_template.format(**tk) for tk in temp_keys ])
         return self.form_template.format(input_template=text)
+
+
+class ProfilesFilter:
+    
+    def perform_filter(self, default_profiles, user):
+        pass
+        
+class DummyFilter(ProfilesFilter):
+
+    def perform_filter(self, default_profiles, user):
+        return [x[:4] for x in default_profiles]
+
+class UnixGroupFilter(ProfilesFilter):
+
+    def perform_filter(self, default_profiles, user):
+        import grp
+        profiles = []
+        for p in default_profiles:
+            for group in p[4]:
+                # Stop early if the group spec is the wildcard `*`.
+                if group == '*':
+                    profiles.append(p)
+                    break
+                try:
+                    # grp.getgrnam returns a struct that includes a list
+                    # containing the names of all group members as its 3rd
+                    # entry.
+                    members = grp.getgrnam(group)[3]
+                except KeyError:
+                    # We land here if the group could not be found.  Warn
+                    # about the incident but, apart from that, continue.
+                    members = []
+                # We can stop scanning groups when we found the user in one
+                # of them.
+                if user in members:
+                    profiles.append(p[:4])
+                    break
+        return profiles
 
 
 # vim: set ai expandtab softtabstop=4:
