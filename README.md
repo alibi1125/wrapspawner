@@ -1,3 +1,13 @@
+# Why this fork?
+
+In our Jupyter Cluster, we have been using ProfilesSpawner in conjunction with BatchSpawner for a while to offer different
+compute setup profiles. However, the need for user dependent profile offerings arose. To keep things simple, I wanted to integrate
+it with the preexisting UNIX groups on our LDAP server. Upstream PR #15 does exactly this, but wasn't accepted right away. It is
+still open, but since there was no further activity from the original creator there, I built my own implementation in a more
+generic way. This is the result. I am currently testing it on our JupyterHub cluster.
+
+Original readme:
+
 # wrapspawner for Jupyterhub
 
 This package includes **WrapSpawner** and **ProfilesSpawner**, which provide mechanisms for runtime configuration of spawners. 
