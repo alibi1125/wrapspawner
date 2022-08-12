@@ -25,13 +25,14 @@ import json
 import re
 import urllib.request
 
-from tornado import gen, concurrent
+#from tornado import gen, concurrent
 
 from jupyterhub.spawner import LocalProcessSpawner, Spawner
 from traitlets import (
     Instance, Type, Tuple, List, Dict, Integer, Unicode, Float, Any
 )
 from traitlets import directional_link
+from ..filters import ProfilesFilter, DummyFilter
 
 # Only needed for DockerProfilesSpawner
 try:
@@ -40,42 +41,6 @@ except ImportError:
     pass
 
 
-class ProfilesFilter:
-    
-    def perform_filter(default_profiles, user):
-        pass
-        
-class DummyFilter(ProfilesFilter):
-
-    def perform_filter(default_profiles, user):
-        return [x[:4] for x in default_profiles]
-
-class UnixGroupFilter(ProfilesFilter):
-
-    def perform_filter(default_profiles, user):
-        import grp
-        profiles = []
-        for p in default_profiles:
-            for group in p[4]:
-                # Stop early if the group spec is the wildcard `*`.
-                if group == '*':
-                    profiles.append(p)
-                    break
-                try:
-                    # grp.getgrnam returns a struct that includes a list
-                    # containing the names of all group members as its 3rd
-                    # entry.
-                    members = grp.getgrnam(group)[3]
-                except KeyError:
-                    # We land here if the group could not be found.  Warn
-                    # about the incident but, apart from that, continue.
-                    members = []
-                # We can stop scanning groups when we found the user in one
-                # of them.
-                if user in members:
-                    profiles.append(p[:4])
-                    break
-        return profiles
 
 # Utility to create dummy Futures to return values through yields
 def _yield_val(x=None):
