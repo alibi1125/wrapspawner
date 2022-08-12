@@ -25,21 +25,20 @@ import json
 import re
 import urllib.request
 
-#from tornado import gen, concurrent
+from tornado import gen, concurrent
 
 from jupyterhub.spawner import LocalProcessSpawner, Spawner
 from traitlets import (
     Instance, Type, Tuple, List, Dict, Integer, Unicode, Float, Any
 )
 from traitlets import directional_link
-from ..filters import ProfilesFilter, DummyFilter
+from .filters import ProfilesFilter, DummyFilter
 
 # Only needed for DockerProfilesSpawner
 try:
     import docker
 except ImportError:
     pass
-
 
 
 # Utility to create dummy Futures to return values through yields
@@ -275,7 +274,7 @@ class FilteredSpawner(ProfilesSpawner):
 
     @property
     def profiles(self):
-        return self.filterclass.perform_filter(self.default_profiles, self.user.name)
+        return self.filterclass.apply_filter(self.default_profiles, self.user.name)
 
 class DockerProfilesSpawner(ProfilesSpawner):
 

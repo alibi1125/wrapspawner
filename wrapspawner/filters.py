@@ -1,25 +1,25 @@
 import warnings
-from traitlets.config import LoggingConfigurable
+from traitlets import log
 
 try:
     import grp
 except ModuleNotFoundError:
-    warnings.warn("Python builtin 'grp' unavailable. Filters relying on it "
-                  "cannot be used!")
+    warnings.warn("Python builtin 'grp' unavailable. (Running on Windows?) "
+                  "Filters relying on it cannot be used.")
 
-class ProfilesFilter(LoggingConfigurable):
+class ProfilesFilter:
     
-    def perform_filter(default_profiles, user):
+    def apply_filter(default_profiles, user):
         pass
         
 class DummyFilter(ProfilesFilter):
 
-    def perform_filter(default_profiles, user):
+    def apply_filter(default_profiles, user):
         return [x[:4] for x in default_profiles]
 
 class UnixGroupFilter(ProfilesFilter):
 
-    def perform_filter(default_profiles, user):
+    def apply_filter(default_profiles, user):
         profiles = []
         for p in default_profiles:
             for group in p[4]:
@@ -34,8 +34,10 @@ class UnixGroupFilter(ProfilesFilter):
                     members = grp.getgrnam(group)[3]
                 except KeyError:
                     # We land here if the group could not be found.  Warn
-                    # about the incident but, apart from that, continue.\
-                    self.log.warn("Encountered unknown group %s. Ignoring...".format(group))
+                    # about the incident but, apart from that, continue.
+                    log.get_logger().warn("Config problem: Encountered "
+                                          "unknown UNIX group {} for profile "
+                                          "{}. Ignoring...".format(group, p[1]))
                     members = []
                 # We can stop scanning groups when we found the user in one
                 # of them.
