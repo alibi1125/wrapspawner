@@ -20,18 +20,17 @@ Using this mechanism, the administrator can provide users with a pre-approved
 selection of Spawner configurations.
 """
 
-import os
 import json
 import re
 import urllib.request
 
-from tornado import gen, concurrent
+from tornado import concurrent
 
 from jupyterhub.spawner import LocalProcessSpawner, Spawner
 from traitlets import (
-    Instance, Type, Tuple, List, Dict, Integer, Unicode, Float, Any
+    Instance, Type, Tuple, List, Dict, Unicode, Any
 )
-from traitlets import directional_link
+from traitlets import directional_link, validate, TraitError
 from .filters import ProfilesFilter, DummyFilter
 
 # Only needed for DockerProfilesSpawner
@@ -76,6 +75,8 @@ class WrapSpawner(Spawner):
                 hub  = self.hub,
                 authenticator = self.authenticator,
                 oauth_client_id = self.oauth_client_id,
+                cookie_options = self.cookie_options,
+                orm_spawner = self.orm_spawner,
                 server = self._server,
                 config = self.config,
                 **self.child_config
@@ -171,6 +172,18 @@ class ProfilesSpawner(WrapSpawner):
             The first three values will be exposed in the input_template as {display}, {key}, and {type}"""
         )
 
+    @validate("profiles")
+    def _validate_profiles(self, proposal):
+        profiles = proposal.value
+
+        seen = set()
+        duplicated = {p[1] for p in profiles if p[1] in seen or seen.add(p[1])}
+        if len(duplicated):
+            raise TraitError(
+                f"Invalid wrapspawner profiles, profiles keys are not unique : {duplicated}")
+
+        return profiles
+
     child_profile = Unicode()
 
     form_template = Unicode(
@@ -198,8 +211,6 @@ class ProfilesSpawner(WrapSpawner):
             first = "checked" (taken from first_template) for the first item in the list, so that
             the first item starts selected."""
         )
-
-    options_form = Unicode()
 
     def _options_form_default(self):
         temp_keys = [ dict(display=p[0], key=p[1], type=p[2], first='') for p in self.profiles ]
