@@ -141,6 +141,12 @@ class WrapSpawner(Spawner):
             return self.child_spawner.poll()
         else:
             return _yield_val(1)
+    
+    def move_certs(self):
+        # move_certs is called before start, so it needs to be able to construct a child, too
+        if not self.child_spawner:
+            self.construct_child()
+        return self.child_spawner.move_certs()
 
     if hasattr(Spawner, 'progress'):
         @property
@@ -359,4 +365,3 @@ class DockerProfilesSpawner(ProfilesSpawner):
 
 
 # vim: set ai expandtab softtabstop=4:
-
