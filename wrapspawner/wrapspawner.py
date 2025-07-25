@@ -142,11 +142,11 @@ class WrapSpawner(Spawner):
         else:
             return _yield_val(1)
     
-    def move_certs(self):
+    def move_certs(self, paths):
         # move_certs is called before start, so it needs to be able to construct a child, too
         if not self.child_spawner:
             self.construct_child()
-        return self.child_spawner.move_certs()
+        return self.child_spawner.move_certs(paths)
 
     if hasattr(Spawner, 'progress'):
         @property
