@@ -144,18 +144,12 @@ class WrapSpawner(Spawner):
             return _yield_val(1)
     
     def move_certs(self, paths):
-        # move_certs is called before start, so it needs to be able to construct a child, too
-        if not self.child_spawner:
-            self.construct_child()
         return self.child_spawner.move_certs(paths)
     
     def run_pre_spawn_hook(self):
         # Run wrapspawner`s own hook first if defined
         if self.pre_spawn_hook is not None:
             return self.pre_spawn_hook(self)
-        # run_pre_spawn_hook is called before start, so it needs to be able to construct a child, too
-        if not self.child_spawner:
-            self.construct_child()
         return self.child_spawner.run_pre_spawn_hook()
 
     def run_post_stop_hook(self):
@@ -171,6 +165,9 @@ class WrapSpawner(Spawner):
         # Run wrapspawner`s own hook first if defined
         if self.auth_state_hook is not None:
             await maybe_future(self.run_auth_state_hook(self, auth_state))
+        # run_auth_state_hook is the first hook that gets called when starting, so it needs to be able to construct a child
+        if not self.child_spawner:
+            self.construct_child()
         await self.child_spawner.run_auth_state_hook(auth_state)
 
     if hasattr(Spawner, 'progress'):
