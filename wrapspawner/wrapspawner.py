@@ -27,6 +27,7 @@ import urllib.request
 from tornado import concurrent
 
 from jupyterhub.spawner import LocalProcessSpawner, Spawner
+from jupyterhub.utils import maybe_future
 from traitlets import (
     Instance, Type, Tuple, List, Dict, Unicode, Any
 )
@@ -147,6 +148,30 @@ class WrapSpawner(Spawner):
         if not self.child_spawner:
             self.construct_child()
         return self.child_spawner.move_certs(paths)
+    
+    def run_pre_spawn_hook(self):
+        # Run wrapspawner`s own hook first if defined
+        if self.pre_spawn_hook is not None:
+            return self.pre_spawn_hook(self)
+        # run_pre_spawn_hook is called before start, so it needs to be able to construct a child, too
+        if not self.child_spawner:
+            self.construct_child()
+        return self.child_spawner.run_pre_spawn_hook()
+
+    def run_post_stop_hook(self):
+        # Run wrapspawner`s own hook first if defined
+        try:
+            if self.post_stop_hook is not None:
+                self.post_stop_hook(self)
+                return self.child_spawner.run_post_stop_hook()
+        except Exception:
+            self.log.exception("post_stop_hook failed with exception: %s", self)
+    
+    async def run_auth_state_hook(self, auth_state):
+        # Run wrapspawner`s own hook first if defined
+        if self.auth_state_hook is not None:
+            await maybe_future(self.run_auth_state_hook(self, auth_state))
+        await self.child_spawner.run_auth_state_hook(auth_state)
 
     if hasattr(Spawner, 'progress'):
         @property
