@@ -418,6 +418,16 @@ class ImportedProfilesSpawner(ProfilesSpawner):
                 ( profile['description'], 'prof_' + str(index), spawner, profile['options'] )
             )
         return profiles_clean
+    
+    # Overload options_form default to make it callable. This ensures every time the spawner options site is re-rendered, the form gets updated.
+    @default("options_form")
+    def _options_form_default(self):
+        def render_option_form(self):
+            temp_keys = [ dict(display=p[0], key=p[1], type=p[2], first='') for p in self.profiles ]
+            temp_keys[0]['first'] = self.first_template
+            text = ''.join([ self.input_template.format(**tk) for tk in temp_keys ])
+            return self.form_template.format(input_template=text)
+        return render_option_form
 
 class DockerProfilesSpawner(ProfilesSpawner):
 
