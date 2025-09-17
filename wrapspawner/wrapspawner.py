@@ -395,7 +395,7 @@ class ImportedProfilesSpawner(ProfilesSpawner):
         # Read user profiles
         try:
             proc = subprocess.run(['cat', self.user_profiles_loc], check=True, capture_output=True, text=True, user=uid, group=gid)
-            profiles_data += json.load(proc.stdout)
+            profiles_data += json.loads(proc.stdout)
         except subprocess.CalledProcessError as e:
             self.log.warn("Non-normal exit code when reading JSON containing user profiles. Code %s", e.returncode)
         except OSError:
@@ -418,7 +418,7 @@ class ImportedProfilesSpawner(ProfilesSpawner):
                 ( profile['description'], 'prof_' + str(index), spawner, profile['options'] )
             )
         return profiles_clean
-    
+
     # Overload options_form default to make it callable. This ensures every time the spawner options site is re-rendered, the form gets updated.
     @default("options_form")
     def _options_form_default(self):
