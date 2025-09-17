@@ -58,7 +58,8 @@ class WrapSpawner(Spawner):
     # Grab this from constructor args in case some Spawner ever wants it
     config = Any()
 
-    child_class = Type(LocalProcessSpawner, Spawner,
+    child_class = Type(LocalProcessSpawner,
+        Spawner,
         config=True,
         help="""The class to wrap for spawning single-user servers.
                 Should be a subclass of Spawner.
@@ -148,10 +149,10 @@ class WrapSpawner(Spawner):
             return self.child_spawner.poll()
         else:
             return _yield_val(1)
-    
+
     def move_certs(self, paths):
         return self.child_spawner.move_certs(paths)
-    
+
     def run_pre_spawn_hook(self):
         # Run wrapspawner`s own hook first if defined
         if self.pre_spawn_hook is not None:
@@ -166,7 +167,7 @@ class WrapSpawner(Spawner):
                 return self.child_spawner.run_post_stop_hook()
         except Exception:
             self.log.exception("post_stop_hook failed with exception: %s", self)
-    
+
     async def run_auth_state_hook(self, auth_state):
         # Run wrapspawner`s own hook first if defined
         if self.auth_state_hook is not None:
@@ -321,7 +322,7 @@ class FilteredSpawner(ProfilesSpawner):
     def profiles(self):
         return self.filterclass.apply_filter(self.default_profiles, self.user.name)
 
-class ImportedProfilesSpawner(ProfilesFilter):
+class ImportedProfilesSpawner(ProfilesSpawner):
 
     """ProfilesSpawner - leverages the Spawner options form feature to allow user-driven
         configuration of Spawner classes while permitting:
@@ -351,11 +352,12 @@ class ImportedProfilesSpawner(ProfilesFilter):
     @default("homedir")
     def _homedir_default(self):
         if self.home_base_dir == "":
-            self.log.debug("Using system home directory %s", pwd.getpwnam(self.user.name).pw_dir)
-            return pwd.getpwnam(self.user.name).pw_dir
+            homedir = pwd.getpwnam(self.user.name).pw_dir
+            self.log.debug("Using system home directory %s", homedir)
         else:
-            self.log.debug("Home dir overridden, using %s", self.home_base_dir + self.user.name)
-            return self.home_base_dir + self.user.name
+            homedir = os.path.join(self.home_base_dir, self.user.name)
+            self.log.debug("Home dir overridden, using %s", homedir)
+        return homedir
 
     user_subdir_path = Unicode(
         ".jupyterhub",
@@ -392,12 +394,12 @@ class ImportedProfilesSpawner(ProfilesFilter):
             self.log.warn("JSON containing common profiles could not be read")
         # Read user profiles
         try:
-            with subprocess.Popen(['cat', self.user_profiles_loc], stdout=subprocess.PIPE, user=uid, group=gid) as proc:
-                profiles_data += json.load(proc.stdout)
+            proc = subprocess.run(['cat', self.user_profiles_loc], check=True, capture_output=True, text=True, user=uid, group=gid)
+            profiles_data += json.load(proc.stdout)
+        except subprocess.CalledProcessError as e:
+            self.log.warn("Non-normal exit code when reading JSON containing user profiles. Code %s", e.returncode)
         except OSError:
             self.log.error("Invalid arguments for reading user profiles")
-        except subprocess.CalledProcessError as e:
-            self.log.warn("Non-normal exit code when reading JSON containing user profiles. Code ", e.returncode)
         # If there are no profiles, log that.
         if len(profiles_data) == 0:
             self.log.error("No profiles collected. There will be nothing to spawn.")
