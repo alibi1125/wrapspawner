@@ -31,7 +31,13 @@ from jupyterhub.utils import maybe_future
 from traitlets import (
     Instance, Type, Tuple, List, Dict, Unicode, Any
 )
-from traitlets import directional_link, validate, TraitError
+from traitlets import directional_link, validate, TraitError, default
+
+import pwd
+import json
+import os
+import subprocess
+
 from .filters import ProfilesFilter, DummyFilter
 
 # Only needed for DockerProfilesSpawner
@@ -314,6 +320,102 @@ class FilteredSpawner(ProfilesSpawner):
     @property
     def profiles(self):
         return self.filterclass.apply_filter(self.default_profiles, self.user.name)
+
+class ImportedProfilesSpawner(ProfilesFilter):
+
+    """ProfilesSpawner - leverages the Spawner options form feature to allow user-driven
+        configuration of Spawner classes while permitting:
+        1) configuration of Spawner classes that don't natively implement options_form
+        2) administrator control of allowed configuration changes
+        3) runtime choice of which Spawner backend to launch
+        4) loading the spawner profiles from disk, allowing for dynamic changes and per-user customization
+    """
+
+    common_profiles_loc = Unicode(
+        "/etc/jupyterhub/common_profiles.json",
+        config=True,
+        help="Path to a JSON file containing common profiles, to be offered to every user."
+    )
+
+    home_base_dir = Unicode(
+        "",
+        config=True,
+        help="If set, this is used as base of the home directory. Use to override the home directory " \
+        "returned by getpwnam, e.g. for local users vs. LDAP users. User home directory default " \
+        "path is then constructed as `home_base_dir + self.user.name`."
+    )
+
+    # Useful IF getpwnam on submit host returns correct info for exec host
+    homedir = Unicode()
+
+    @default("homedir")
+    def _homedir_default(self):
+        if self.home_base_dir == "":
+            self.log.debug("Using system home directory %s", pwd.getpwnam(self.user.name).pw_dir)
+            return pwd.getpwnam(self.user.name).pw_dir
+        else:
+            self.log.debug("Home dir overridden, using %s", self.home_base_dir + self.user.name)
+            return self.home_base_dir + self.user.name
+
+    user_subdir_path = Unicode(
+        ".jupyterhub",
+        config=True,
+        help="Name of the subdirectory to put in the user's working directory. All files necessary "
+        "for the Spawners' correct operation will be placed there.",
+    )
+
+    user_profiles_loc = Unicode()
+
+    @default("user_profiles_loc")
+    def _user_profiles_loc_default(self):
+        # Construct path to user_profiles file
+        user_profiles_file = 'user_profiles.json'
+        full_path = os.path.join(self.homedir, self.user_subdir_path, user_profiles_file)
+        self.log.debug("User profiles location is %s", full_path)
+        return full_path
+
+    @property
+    def profiles(self):
+        # Get some facts about the requesting user
+        user = pwd.getpwnam(self.user.name)
+        uid = user.pw_uid
+        gid = user.pw_gid
+
+        profiles_data = []
+        # Read common profiles
+        try:
+            with open(self.common_profiles_loc) as cprofiles_file:
+                profiles_data += json.load(cprofiles_file)
+        except FileNotFoundError:
+            self.log.warn("JSON containing common profiles not found")
+        except OSError:
+            self.log.warn("JSON containing common profiles could not be read")
+        # Read user profiles
+        try:
+            with subprocess.Popen(['cat', self.user_profiles_loc], stdout=subprocess.PIPE, user=uid, group=gid) as proc:
+                profiles_data += json.load(proc.stdout)
+        except OSError:
+            self.log.error("Invalid arguments for reading user profiles")
+        except subprocess.CalledProcessError as e:
+            self.log.warn("Non-normal exit code when reading JSON containing user profiles. Code ", e.returncode)
+        # If there are no profiles, log that.
+        if len(profiles_data) == 0:
+            self.log.error("No profiles collected. There will be nothing to spawn.")
+        else:
+            self.log.debug("Full profiles data looks as follows: %s", profiles_data)
+        # Construct a profiles list compatible with the ProfilesSpawner's default signature
+        profiles_clean = []
+        for index, profile in enumerate(profiles_data):
+            # To keep our JSON files short, avoiding unnecessary info, there are only two non-optional keys per profile: description and options.
+            # The unique name is built at runtime and spawner is assumed to be batchspawner.SlurmSpawner if it isn't provided.
+            try:
+                spawner = profile['spawner']
+            except KeyError:
+                spawner = "batchspawner.SlurmSpawner"
+            profiles_clean.append(
+                ( profile['description'], 'prof_' + str(index), spawner, profile['options'] )
+            )
+        return profiles_clean
 
 class DockerProfilesSpawner(ProfilesSpawner):
 
