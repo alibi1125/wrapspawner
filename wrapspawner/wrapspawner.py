@@ -325,7 +325,7 @@ class FilteredSpawner(ProfilesSpawner):
 
 class ImportedProfilesSpawner(ProfilesSpawner):
 
-    """ProfilesSpawner - leverages the Spawner options form feature to allow user-driven
+    """ImportedProfilesSpawner - leverages the Spawner options form feature to allow user-driven
         configuration of Spawner classes while permitting:
         1) configuration of Spawner classes that don't natively implement options_form
         2) administrator control of allowed configuration changes
@@ -439,27 +439,6 @@ class ServiceProfilesSpawner(ProfilesSpawner):
         3) runtime choice of which Spawner backend to launch
         4) loading the spawner profiles from disk, allowing for dynamic changes and per-user customization
     """
-
-    home_base_dir = Unicode(
-        "",
-        config=True,
-        help="If set, this is used as base of the home directory. Use to override the home directory " \
-        "returned by getpwnam, e.g. for local users vs. LDAP users. User home directory default " \
-        "path is then constructed as `home_base_dir + self.user.name`."
-    )
-
-    # Useful IF getpwnam on submit host returns correct info for exec host
-    homedir = Unicode()
-
-    @default("homedir")
-    def _homedir_default(self):
-        if self.home_base_dir == "":
-            homedir = pwd.getpwnam(self.user.name).pw_dir
-            self.log.debug(f"Using system home directory {homedir} for user {self.user.name}")
-        else:
-            homedir = os.path.join(self.home_base_dir, self.user.name)
-            self.log.debug(f"Home dir overridden, using {homedir} for user {self.user.name}")
-        return homedir
 
     profiles_service_url = Unicode(
         "http://127.0.0.1:8003/services/jupyterhub_profile_tool/profiles/data",
