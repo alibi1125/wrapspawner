@@ -25,6 +25,7 @@ import re
 import urllib.request
 
 from tornado import concurrent
+from tornado.httpclient import AsyncHTTPClient, HTTPRequest
 
 from jupyterhub.spawner import LocalProcessSpawner, Spawner
 from jupyterhub.utils import maybe_future
@@ -353,10 +354,10 @@ class ImportedProfilesSpawner(ProfilesSpawner):
     def _homedir_default(self):
         if self.home_base_dir == "":
             homedir = pwd.getpwnam(self.user.name).pw_dir
-            self.log.debug("Using system home directory %s", homedir)
+            self.log.debug(f"Using system home directory {homedir} for user {self.user.name}")
         else:
             homedir = os.path.join(self.home_base_dir, self.user.name)
-            self.log.debug("Home dir overridden, using %s", homedir)
+            self.log.debug(f"Home dir overridden, using {homedir} for user {self.user.name}")
         return homedir
 
     user_subdir_path = Unicode(
@@ -373,7 +374,7 @@ class ImportedProfilesSpawner(ProfilesSpawner):
         # Construct path to user_profiles file
         user_profiles_file = 'user_profiles.json'
         full_path = os.path.join(self.homedir, self.user_subdir_path, user_profiles_file)
-        self.log.debug("User profiles location is %s", full_path)
+        self.log.debug(f"User profiles location is {full_path}")
         return full_path
 
     @property
@@ -397,14 +398,14 @@ class ImportedProfilesSpawner(ProfilesSpawner):
             proc = subprocess.run(['cat', self.user_profiles_loc], check=True, capture_output=True, text=True, user=uid, group=gid)
             profiles_data += json.loads(proc.stdout)
         except subprocess.CalledProcessError as e:
-            self.log.warn("Non-normal exit code when reading JSON containing user profiles. Code %s", e.returncode)
+            self.log.warn(f"Non-normal exit code when reading JSON containing user profiles. Code {e.returncode}")
         except OSError:
             self.log.error("Invalid arguments for reading user profiles")
         # If there are no profiles, log that.
         if len(profiles_data) == 0:
             self.log.error("No profiles collected. There will be nothing to spawn.")
         else:
-            self.log.debug("Full profiles data looks as follows: %s", profiles_data)
+            self.log.debug(f"Full profiles data looks as follows: {profiles_data}")
         # Construct a profiles list compatible with the ProfilesSpawner's default signature
         profiles_clean = []
         for index, profile in enumerate(profiles_data):
@@ -415,7 +416,79 @@ class ImportedProfilesSpawner(ProfilesSpawner):
             except KeyError:
                 spawner = "batchspawner.SlurmSpawner"
             profiles_clean.append(
-                ( profile['description'], 'prof_' + str(index), spawner, profile['options'] )
+                ( profile['description'], f"prof_{index}", spawner, profile['options'] )
+            )
+        return profiles_clean
+
+    # Overload options_form default to make it callable. This ensures every time the spawner options site is re-rendered, the form gets updated.
+    @default("options_form")
+    def _options_form_default(self):
+        def render_option_form(self):
+            temp_keys = [ dict(display=p[0], key=p[1], type=p[2], first='') for p in self.profiles ]
+            temp_keys[0]['first'] = self.first_template
+            text = ''.join([ self.input_template.format(**tk) for tk in temp_keys ])
+            return self.form_template.format(input_template=text)
+        return render_option_form
+
+class ServiceProfilesSpawner(ProfilesSpawner):
+
+    """ServiceProfilesSpawner - leverages the Spawner options form feature to allow user-driven
+        configuration of Spawner classes while permitting:
+        1) configuration of Spawner classes that don't natively implement options_form
+        2) administrator control of allowed configuration changes
+        3) runtime choice of which Spawner backend to launch
+        4) loading the spawner profiles from disk, allowing for dynamic changes and per-user customization
+    """
+
+    home_base_dir = Unicode(
+        "",
+        config=True,
+        help="If set, this is used as base of the home directory. Use to override the home directory " \
+        "returned by getpwnam, e.g. for local users vs. LDAP users. User home directory default " \
+        "path is then constructed as `home_base_dir + self.user.name`."
+    )
+
+    # Useful IF getpwnam on submit host returns correct info for exec host
+    homedir = Unicode()
+
+    @default("homedir")
+    def _homedir_default(self):
+        if self.home_base_dir == "":
+            homedir = pwd.getpwnam(self.user.name).pw_dir
+            self.log.debug(f"Using system home directory {homedir} for user {self.user.name}")
+        else:
+            homedir = os.path.join(self.home_base_dir, self.user.name)
+            self.log.debug(f"Home dir overridden, using {homedir} for user {self.user.name}")
+        return homedir
+
+    profiles_service_url = Unicode(
+        "http://127.0.0.1:8003/services/jupyterhub_profile_tool/profiles/data",
+        config = True,
+        help="URL under which the profile service serves the user profiles."
+    )
+
+    @property
+    def profiles(self):
+        token = self.user.api_token
+        http_client = AsyncHTTPClient()
+        req = HTTPRequest(
+            url=self.profiles_service_url,
+            headers={"Authorization": f"token {token}",
+                     "Accept": "application/json"
+            }
+        )
+        resp = http_client.fetch(req)
+        profiles_data = json.loads(resp)["profiles"]
+        profiles_clean = []
+        for profile in profiles_data:
+            # To keep our JSON files short, avoiding unnecessary info, there are only two non-optional keys per profile: description and options.
+            # The unique name is built at runtime and spawner is assumed to be batchspawner.SlurmSpawner if it isn't provided.
+            try:
+                spawner = profile['spawner']
+            except KeyError:
+                spawner = "batchspawner.SlurmSpawner"
+            profiles_clean.append(
+                ( profile['description'], profile['profile_id'], spawner, profile['options'] )
             )
         return profiles_clean
 
