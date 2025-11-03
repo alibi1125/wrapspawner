@@ -25,7 +25,7 @@ import re
 import urllib.request
 
 from tornado import concurrent
-from tornado.httpclient import AsyncHTTPClient, HTTPRequest
+from tornado.httpclient import AsyncHTTPClient, HTTPRequest, HTTPClientError
 
 from jupyterhub.spawner import LocalProcessSpawner, Spawner
 from jupyterhub.utils import maybe_future
@@ -430,6 +430,16 @@ class ImportedProfilesSpawner(ProfilesSpawner):
             return self.form_template.format(input_template=text)
         return render_option_form
 
+
+def renew_api_token(func):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except (AttributeError, HTTPClientError):
+            args[0]._get_user_token()
+            return func(*args, **kwargs)
+        return wrapper
+
 class ServiceProfilesSpawner(ProfilesSpawner):
 
     """ServiceProfilesSpawner - leverages the Spawner options form feature to allow user-driven
@@ -446,17 +456,52 @@ class ServiceProfilesSpawner(ProfilesSpawner):
         help="URL under which the profile service serves the user profiles."
     )
 
-    @property
-    def profiles(self):
-        token = self.user.api_token
+    def _get_user_token(self):
         http_client = AsyncHTTPClient()
+        hub_api_url = self.hub.api_url.rstrip('/')
         req = HTTPRequest(
-            url=self.profiles_service_url,
-            headers={"Authorization": f"token {token}",
-                     "Accept": "application/json"
+            url = f"{hub_api_url}/users/{self.user.name}/tokens",
+            method = "POST",
+            body = json.dumps({"note": f"spawner-init-{self.user.name}",
+                               "expires_in": 300,
+            }),
+            headers = {"Authorization": f"token {self.hub.api_token}",
+                       "Content-Type": "application/json",
             }
         )
-        resp = http_client.fetch(req)
+        try:
+            resp = http_client.fetch(req)
+            data = json.loads(resp.body.decode('utf-8'))
+            self.user_token = data["token"]
+            self.log.info(f"Temporary user token for user {self.user.name} created in ServiceProfilesSpawner")
+            return
+        except HTTPClientError as e:
+            msg = e.response.body.decode() if e.response and e.response.body else str(e)
+            self.log.error(f"Error creating temporary user token for user {self.user.name}: {e.code} {msg}")
+        except KeyError as e:
+            msg = e.response.body.decode() if e.response and e.response.body else str(e)
+            self.log.error(f"No temporary user token was returned for user {self.user.name}: {msg}")
+        except Exception as e:
+            self.log.error(f"Unexpected error creating temporary user token for user {self.user.name}: {e}")
+        self.user_token = ""
+        return
+
+    @property
+    @renew_api_token
+    def profiles(self):
+        http_client = AsyncHTTPClient()
+        req = HTTPRequest(
+            url = self.profiles_service_url,
+            headers = {"Authorization": f"token {self.user_token}",
+                       "Accept": "application/json",
+            },
+        )
+        try:
+            resp = http_client.fetch(req)
+        except HTTPClientError as e:
+            msg = e.response.body.decode() if e.response and e.response.body else str(e)
+            self.log.error(f"Profile information could not be fetched due to HTTP error {e.code}. The error was {msg}")
+            resp = {"profiles": []}
         profiles_data = json.loads(resp)["profiles"]
         profiles_clean = []
         for profile in profiles_data:
