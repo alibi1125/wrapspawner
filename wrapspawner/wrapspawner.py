@@ -26,6 +26,7 @@ import urllib.request
 
 from tornado import concurrent
 from tornado.httpclient import AsyncHTTPClient, HTTPRequest, HTTPClientError
+from tornado.ioloop import IOLoop
 
 from jupyterhub.spawner import LocalProcessSpawner, Spawner
 from jupyterhub.utils import maybe_future
@@ -456,7 +457,7 @@ class ServiceProfilesSpawner(ProfilesSpawner):
         help="URL under which the profile service serves the user profiles."
     )
 
-    def _get_user_token(self):
+    async def _get_user_token(self):
         http_client = AsyncHTTPClient()
         hub_api_url = self.hub.api_url.rstrip('/')
         req = HTTPRequest(
@@ -470,7 +471,7 @@ class ServiceProfilesSpawner(ProfilesSpawner):
             }
         )
         try:
-            resp = http_client.fetch(req)
+            resp = await http_client.fetch(req)
             data = json.loads(resp.body.decode('utf-8'))
             self.user_token = data["token"]
             self.log.info(f"Temporary user token for user {self.user.name} created in ServiceProfilesSpawner")
@@ -485,11 +486,12 @@ class ServiceProfilesSpawner(ProfilesSpawner):
             self.log.error(f"Unexpected error creating temporary user token for user {self.user.name}: {e}")
         self.user_token = ""
         return
-
-    @property
-    @renew_api_token
-    def profiles(self):
+    
+    async def _get_profiles(self):
+        self.log.debug("Next: Creating HTTP Client")
         http_client = AsyncHTTPClient()
+        self.user_token = "2ac1ee9a8e2240d6b347e13f23f31ef1"
+        self.log.debug("Next: Creating Request")
         req = HTTPRequest(
             url = self.profiles_service_url,
             headers = {"Authorization": f"token {self.user_token}",
@@ -497,12 +499,16 @@ class ServiceProfilesSpawner(ProfilesSpawner):
             },
         )
         try:
-            resp = http_client.fetch(req)
+            return http_client.fetch(req)
         except HTTPClientError as e:
             msg = e.response.body.decode() if e.response and e.response.body else str(e)
             self.log.error(f"Profile information could not be fetched due to HTTP error {e.code}. The error was {msg}")
-            resp = {"profiles": []}
-        profiles_data = json.loads(resp)["profiles"]
+
+    @property
+    # @renew_api_token
+    def profiles(self):
+        fetched = IOLoop.current().run_sync(self._get_profiles)
+        profiles_data = json.loads(fetched.body.decode("utf-8"))["profiles"]
         profiles_clean = []
         for profile in profiles_data:
             # To keep our JSON files short, avoiding unnecessary info, there are only two non-optional keys per profile: description and options.
