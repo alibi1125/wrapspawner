@@ -451,11 +451,29 @@ class ServiceProfilesSpawner(ProfilesSpawner):
         4) loading the spawner profiles from disk, allowing for dynamic changes and per-user customization
     """
 
+    profiles = List(
+        trait = Tuple( Unicode(), Unicode(), Type(Spawner), Dict() ),
+        default_value = [ ( 'Loading profiles...', 'invalid', LocalProcessSpawner, {} ) ],
+        minlen = 1,
+        config = True,
+        help = """List of profiles to offer for selection. Signature is:
+            List(Tuple( Unicode, Unicode, Type(Spawner), Dict )) corresponding to
+            profile display name, unique key, Spawner class, dictionary of spawner config options.
+
+            The first three values will be exposed in the input_template as {display}, {key}, and {type}
+            
+            Default value will be auto-replaced as soon as we are done fetching the data"""
+        )
+
     profiles_service_url = Unicode(
         "http://127.0.0.1:8003/services/jupyterhub_profile_tool/profiles/data",
         config = True,
         help="URL under which the profile service serves the user profiles."
     )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        IOLoop.current().add_callback(self._get_profiles)
 
     async def _get_user_token(self):
         http_client = AsyncHTTPClient()
@@ -499,16 +517,15 @@ class ServiceProfilesSpawner(ProfilesSpawner):
             },
         )
         try:
-            return http_client.fetch(req)
+            fetched = await http_client.fetch(req)
+            profiles_data = json.loads(fetched.body.decode("utf-8"))["profiles"]
         except HTTPClientError as e:
             msg = e.response.body.decode() if e.response and e.response.body else str(e)
             self.log.error(f"Profile information could not be fetched due to HTTP error {e.code}. The error was {msg}")
-
-    @property
-    # @renew_api_token
-    def profiles(self):
-        fetched = IOLoop.current().run_sync(self._get_profiles)
-        profiles_data = json.loads(fetched.body.decode("utf-8"))["profiles"]
+            profiles_data = []
+        except json.JSONDecodeError as e:
+            self.log.error(f"Could not parse fetch result as JSON. Tried to read {fetched.body.decode("utf-8")}")
+            profiles_data = []
         profiles_clean = []
         for profile in profiles_data:
             # To keep our JSON files short, avoiding unnecessary info, there are only two non-optional keys per profile: description and options.
@@ -520,7 +537,7 @@ class ServiceProfilesSpawner(ProfilesSpawner):
             profiles_clean.append(
                 ( profile['description'], profile['profile_id'], spawner, profile['options'] )
             )
-        return profiles_clean
+        self.profiles = profiles_clean
 
     # Overload options_form default to make it callable. This ensures every time the spawner options site is re-rendered, the form gets updated.
     @default("options_form")
