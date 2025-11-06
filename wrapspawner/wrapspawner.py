@@ -185,7 +185,7 @@ class WrapSpawner(Spawner):
             if self.child_spawner:
                 return self.child_spawner.progress
             else:
-                raise RuntimeError("No child spawner yet exists - can not get progress yet")
+                raise RuntimeError("No child spawner yet exists - cannot get progress")
 
 class ProfilesSpawner(WrapSpawner):
 
@@ -453,16 +453,16 @@ class ServiceProfilesSpawner(ProfilesSpawner):
 
     profiles = List(
         trait = Tuple( Unicode(), Unicode(), Type(Spawner), Dict() ),
-        default_value = [ ( 'Loading profiles...', 'invalid', LocalProcessSpawner, {} ) ],
+        default_value = [ ( "Loading profiles...", "invalid", LocalProcessSpawner, {} ) ],
         minlen = 1,
         config = True,
         help = """List of profiles to offer for selection. Signature is:
             List(Tuple( Unicode, Unicode, Type(Spawner), Dict )) corresponding to
             profile display name, unique key, Spawner class, dictionary of spawner config options.
-
-            The first three values will be exposed in the input_template as {display}, {key}, and {type}
-            
-            Default value will be auto-replaced as soon as we are done fetching the data"""
+            The first three values will be exposed in the input_template as {display}, {key}, and {type}.
+            Default value will be auto-replaced as soon as we are done fetching the data.
+            Note: If unique keys starting with `invalid` are selected when clicking `Spawn`,
+            `options_from_form` will raise an error, thus ensuring placeholder items cannot be started."""
         )
 
     profiles_service_url = Unicode(
@@ -508,7 +508,8 @@ class ServiceProfilesSpawner(ProfilesSpawner):
     async def _get_profiles(self):
         self.log.debug("Next: Creating HTTP Client")
         http_client = AsyncHTTPClient()
-        self.user_token = "2ac1ee9a8e2240d6b347e13f23f31ef1"
+        # For testing ONLY. Token expires daily.
+        self.user_token = "8efaccb394a2486899660f729aec5ad8"
         self.log.debug("Next: Creating Request")
         req = HTTPRequest(
             url = self.profiles_service_url,
@@ -519,13 +520,27 @@ class ServiceProfilesSpawner(ProfilesSpawner):
         try:
             fetched = await http_client.fetch(req)
             profiles_data = json.loads(fetched.body.decode("utf-8"))["profiles"]
+            if len(profiles_data) == 0:
+                profiles_data = [ {"description": "No profiles found",
+                                   "profile_id": "invalid",
+                                   "spawner": LocalProcessSpawner,
+                                   "options": {}
+                                   } ]
         except HTTPClientError as e:
             msg = e.response.body.decode() if e.response and e.response.body else str(e)
             self.log.error(f"Profile information could not be fetched due to HTTP error {e.code}. The error was {msg}")
-            profiles_data = []
+            profiles_data = [ {"description": "Error reading profiles",
+                               "profile_id": "invalid",
+                               "spawner": LocalProcessSpawner,
+                               "options": {}
+                               } ]
         except json.JSONDecodeError as e:
             self.log.error(f"Could not parse fetch result as JSON. Tried to read {fetched.body.decode("utf-8")}")
-            profiles_data = []
+            profiles_data = [ {"description": "Error reading profiles",
+                               "profile_id": "invalid",
+                               "spawner": LocalProcessSpawner,
+                               "options": {}
+                               } ]
         profiles_clean = []
         for profile in profiles_data:
             # To keep our JSON files short, avoiding unnecessary info, there are only two non-optional keys per profile: description and options.
@@ -538,6 +553,13 @@ class ServiceProfilesSpawner(ProfilesSpawner):
                 ( profile['description'], profile['profile_id'], spawner, profile['options'] )
             )
         self.profiles = profiles_clean
+
+    def options_from_form(self, formdata):
+        # Default to first profile if somehow none is provided
+        profile_id = formdata.get('profile', [self.profiles[0][1]])[0]
+        if profile_id.startswith("invaild"):
+            raise ValueError(jupyterhub_message="Not a valid profile to spawn")
+        return dict(profile=profile_id)
 
     # Overload options_form default to make it callable. This ensures every time the spawner options site is re-rendered, the form gets updated.
     @default("options_form")
