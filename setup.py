@@ -27,6 +27,7 @@ setup_args = dict(
     name                = 'wrapspawner',
     packages            = ['wrapspawner'],
     version             = version_ns['__version__'],
+    python_requires     = ">=3.10",
     description         = """Wrapspawner: A spawner for Jupyterhub to wrap other spawners and allow the user to choose among them.""",
     long_description    = "",
     author              = "Michael Milligan",
