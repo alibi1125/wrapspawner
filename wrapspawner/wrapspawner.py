@@ -466,13 +466,45 @@ class ServiceProfilesSpawner(ProfilesSpawner):
         )
 
     profiles_service_url = Unicode(
-        "http://127.0.0.1:8003/services/jupyterhub_profile_tool/profiles/data",
+        "http://127.0.0.1:8003/services/jupyterhub_profile_tool/",
         config = True,
-        help="URL under which the profile service serves the user profiles."
+        help = "URL under which the profile service serves the user profiles."
+    )
+    
+    form_template = Unicode(
+        """<label for="profile">Select a job profile:</label>
+        <select class="form-control" name="profile" required autofocus>
+        {input_template}
+        </select>
+        <div class="row justify-content-center">
+          <div class="col-md-8 text-center">
+            To view and modify these profiles, <a href="{profiles_service_url}">visit the Profile setup page</a>.
+          </div>
+        </div>
+        {reload_script}
+        """,
+        config = True,
+        help = """Template to use to construct options_form text. {input_template} is replaced with
+            the result of formatting input_template against each item in the profiles list."""
+    )
+    
+    reload_script = Unicode(
+        """<script>
+        // Reload after two seconds
+        setTimeout(() => {
+          console.log("No data yet. Reloading...");
+          window.location.reload();
+        }, 1000);
+        </script>
+        """,
+        config = True,
+        help = """Script snippet to reload spawn page. Should only be included when the profiles fetch is not
+            finished yet at rendering time."""
     )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.profiles_fetch_ready = False
         IOLoop.current().add_callback(self._get_profiles)
 
     async def _get_user_token(self):
@@ -504,15 +536,15 @@ class ServiceProfilesSpawner(ProfilesSpawner):
             self.log.error(f"Unexpected error creating temporary user token for user {self.user.name}: {e}")
         self.user_token = ""
         return
-    
+
     async def _get_profiles(self):
         self.log.debug("Next: Creating HTTP Client")
         http_client = AsyncHTTPClient()
         # For testing ONLY. Token expires daily.
-        self.user_token = "8efaccb394a2486899660f729aec5ad8"
+        self.user_token = "416a9d2b29954cbeaa1665c885544404"
         self.log.debug("Next: Creating Request")
         req = HTTPRequest(
-            url = self.profiles_service_url,
+            url = urllib.parse.urljoin(self.profiles_service_url, "profiles/data"),
             headers = {"Authorization": f"token {self.user_token}",
                        "Accept": "application/json",
             },
@@ -526,21 +558,19 @@ class ServiceProfilesSpawner(ProfilesSpawner):
                                    "spawner": LocalProcessSpawner,
                                    "options": {}
                                    } ]
-        except HTTPClientError as e:
-            msg = e.response.body.decode() if e.response and e.response.body else str(e)
-            self.log.error(f"Profile information could not be fetched due to HTTP error {e.code}. The error was {msg}")
+        except Exception as e:
             profiles_data = [ {"description": "Error reading profiles",
                                "profile_id": "invalid",
                                "spawner": LocalProcessSpawner,
                                "options": {}
                                } ]
-        except json.JSONDecodeError as e:
-            self.log.error(f"Could not parse fetch result as JSON. Tried to read {fetched.body.decode("utf-8")}")
-            profiles_data = [ {"description": "Error reading profiles",
-                               "profile_id": "invalid",
-                               "spawner": LocalProcessSpawner,
-                               "options": {}
-                               } ]
+            if type(e) == HTTPClientError:
+                msg = e.response.body.decode() if e.response and e.response.body else str(e)
+                self.log.error(f"Profile information could not be fetched due to HTTP error {e.code}. The error was {msg}")
+            elif type(e) == json.JSONDecodeError:
+                self.log.error(f"Could not parse fetch result as JSON. Tried to read {fetched.body.decode("utf-8")}")
+            else:
+                self.log.error(f"Unexpected error when trying to read profile data for {self.user.name}: {e}")
         profiles_clean = []
         for profile in profiles_data:
             # To keep our JSON files short, avoiding unnecessary info, there are only two non-optional keys per profile: description and options.
@@ -553,10 +583,12 @@ class ServiceProfilesSpawner(ProfilesSpawner):
                 ( profile['description'], profile['profile_id'], spawner, profile['options'] )
             )
         self.profiles = profiles_clean
+        self.profiles_fetch_ready = True
 
     def options_from_form(self, formdata):
         # Default to first profile if somehow none is provided
-        profile_id = formdata.get('profile', [self.profiles[0][1]])[0]
+        profile_id = formdata.get("profile", [self.profiles[0][1]])[0]
+        self.log.debug(f"Got profile ID {profile_id}")
         if profile_id.startswith("invaild"):
             raise ValueError(jupyterhub_message="Not a valid profile to spawn")
         return dict(profile=profile_id)
@@ -565,10 +597,16 @@ class ServiceProfilesSpawner(ProfilesSpawner):
     @default("options_form")
     def _options_form_default(self):
         def render_option_form(self):
+            if self.profiles_fetch_ready:
+                reload_script = ""
+            else:
+                reload_script = self.reload_script
             temp_keys = [ dict(display=p[0], key=p[1], type=p[2], first='') for p in self.profiles ]
             temp_keys[0]['first'] = self.first_template
             text = ''.join([ self.input_template.format(**tk) for tk in temp_keys ])
-            return self.form_template.format(input_template=text)
+            return self.form_template.format(input_template=text,
+                                             profiles_service_url=self.profiles_service_url,
+                                             reload_script=reload_script)
         return render_option_form
 
 class DockerProfilesSpawner(ProfilesSpawner):
