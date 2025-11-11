@@ -516,47 +516,21 @@ class ServiceProfilesSpawner(ProfilesSpawner):
         self._token_expiry = 0
         IOLoop.current().add_callback(self._get_profiles)
 
-    async def _get_user_token(self):
+    def _get_user_token(self):
         # To not mass-generate tokens, if _user_token is non-empty and has not expired yet, return immediately.
         if self._user_token and time.time() < self._token_expiry:
             return
-        http_client = AsyncHTTPClient()
-        hub_api_url = self.hub.api_url.rstrip('/')
-        req = HTTPRequest(
-            url = f"{hub_api_url}/users/{self.user.name}/tokens",
-            method = "POST",
-            body = json.dumps({"note": f"spawner-init-{self.user.name}",
-                               "expires_in": 300,
-            }),
-            headers = {"Authorization": f"token {self.hub.api_token}",
-                       "Content-Type": "application/json",
-            }
-        )
-        try:
-            resp = await http_client.fetch(req)
-            data = json.loads(resp.body.decode('utf-8'))
-            self._user_token = data["token"]
-            self._token_expiry = time.time() + self.token_ttl
-            self.log.info(f"Temporary user token for user {self.user.name} created in ServiceProfilesSpawner")
-            return
-        except HTTPClientError as e:
-            msg = e.response.body.decode() if e.response and e.response.body else str(e)
-            self.log.error(f"Error creating temporary user token for user {self.user.name}: {e.code} {msg}")
-        except KeyError as e:
-            msg = e.response.body.decode() if e.response and e.response.body else str(e)
-            self.log.error(f"No temporary user token was returned for user {self.user.name}: {msg}")
-        except Exception as e:
-            self.log.error(f"Unexpected error creating temporary user token for user {self.user.name}: {e}")
-        self._user_token = ""
-        return
+        self._user_token = self.user.new_api_token(note="service-spawner-token",
+                                                   expires_in=self.token_ttl,
+                                                   scopes="access:services!service=jupyterhub_profile_tool")
+        self._token_expiry = time.time() + self.token_ttl
 
     async def _get_profiles(self):
         self._profiles_fetch = FetchState.WORKING
-        # _get_user_token only fetches a token if it doesn't exist or it expired, so it is safe to call every time.
-        await self._get_user_token()
-        self.log.debug("Next: Creating HTTP Client")
+        # _get_user_token only creates a token if it doesn't exist or it expired, so it is safe to call every time.
+        self._get_user_token()
         http_client = AsyncHTTPClient()
-        self.log.debug("Next: Creating Request")
+        self.log.debug(f"Creating request for profiles of user {self.user.name}")
         req = HTTPRequest(
             url = urllib.parse.urljoin(self.profiles_service_url, "profiles/data"),
             headers = {"Authorization": f"token {self.user_token}",
@@ -608,22 +582,25 @@ class ServiceProfilesSpawner(ProfilesSpawner):
         return dict(profile=profile_id)
 
     # Overload options_form to make it callable. This ensures every time the spawner options site is re-rendered, the form gets updated.
-    def options_form(self):
-        match self._profiles_fetch:
-            case FetchState.INACTIVE:
-                self._get_profiles()
-                reload_script = self.reload_script
-            case FetchState.WORKING:
-                reload_script = self.reload_script
-            case FetchState.COMPLETE:
-                reload_script = ""
-                self._profiles_fetch = FetchState.INACTIVE
-        temp_keys = [ dict(display=p[0], key=p[1], type=p[2], first='') for p in self.profiles ]
-        temp_keys[0]['first'] = self.first_template
-        text = ''.join([ self.input_template.format(**tk) for tk in temp_keys ])
-        return self.form_template.format(input_template=text,
-                                         profiles_service_url=self.profiles_service_url,
-                                         reload_script=reload_script)
+    @default("options_form")
+    def _default_options_form(self):
+        def _render_options_form(self):
+            match self._profiles_fetch:
+                case FetchState.INACTIVE:
+                    self._get_profiles()
+                    reload_script = self.reload_script
+                case FetchState.WORKING:
+                    reload_script = self.reload_script
+                case FetchState.COMPLETE:
+                    reload_script = ""
+                    self._profiles_fetch = FetchState.INACTIVE
+            temp_keys = [ dict(display=p[0], key=p[1], type=p[2], first='') for p in self.profiles ]
+            temp_keys[0]['first'] = self.first_template
+            text = ''.join([ self.input_template.format(**tk) for tk in temp_keys ])
+            return self.form_template.format(input_template=text,
+                                            profiles_service_url=self.profiles_service_url,
+                                            reload_script=reload_script)
+        return _render_options_form
 
 class DockerProfilesSpawner(ProfilesSpawner):
 
