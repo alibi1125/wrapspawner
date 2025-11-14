@@ -244,7 +244,7 @@ class ProfilesSpawner(WrapSpawner):
         )
 
     input_template = Unicode("""
-        <option value="{key}" {first}>{display}</option>""",
+        <option value="{key}" title="{description}" {first}>{display}</option>""",
         config = True,
         help = """Template to construct {input_template} in form_template. This text will be formatted
             against each item in the profiles list, in order, using the following key names:
@@ -252,9 +252,13 @@ class ProfilesSpawner(WrapSpawner):
             first = "checked" (taken from first_template) for the first item in the list, so that
             the first item starts selected."""
         )
+    
+    def _fmt_description(self, spawner, options):
+        option_elements = [ f"{k[4:] if k.startswith('req_') else k}: {v}" for k, v in options.items() if v ]
+        return f"{spawner.__name__}, profile settings {', '.join(option_elements)}"
 
     def _options_form_default(self):
-        temp_keys = [ dict(display=p[0], key=p[1], type=p[2], first='') for p in self.profiles ]
+        temp_keys = [ dict(display=p[0], key=p[1], type=p[2], description=self._fmt_description(p[2],p[3]), first='') for p in self.profiles ]
         temp_keys[0]['first'] = self.first_template
         text = ''.join([ self.input_template.format(**tk) for tk in temp_keys ])
         return self.form_template.format(input_template=text)
@@ -429,7 +433,7 @@ class ImportedProfilesSpawner(ProfilesSpawner):
     @default("options_form")
     def _options_form_default(self):
         def render_option_form(self):
-            temp_keys = [ dict(display=p[0], key=p[1], type=p[2], first='') for p in self.profiles ]
+            temp_keys = [ dict(display=p[0], key=p[1], type=p[2], description=self._fmt_description(p[2],p[3]), first='') for p in self.profiles ]
             temp_keys[0]['first'] = self.first_template
             text = ''.join([ self.input_template.format(**tk) for tk in temp_keys ])
             return self.form_template.format(input_template=text)
@@ -576,7 +580,6 @@ class ServiceProfilesSpawner(ProfilesSpawner):
     def options_from_form(self, formdata):
         # Default to first profile if somehow none is provided
         profile_id = formdata.get("profile", [self.profiles[0][1]])[0]
-        self.log.debug(f"Got profile ID {profile_id}")
         if profile_id.startswith("invalid"):
             raise ValueError(jupyterhub_message="Not a valid profile to spawn")
         return dict(profile=profile_id)
@@ -600,7 +603,7 @@ class ServiceProfilesSpawner(ProfilesSpawner):
                 case FetchState.COMPLETE:
                     reload_script = ""
                     self._profiles_fetch = FetchState.INACTIVE
-            temp_keys = [ dict(display=p[0], key=p[1], type=p[2], first='') for p in self.profiles ]
+            temp_keys = [ dict(display=p[0], key=p[1], type=p[2], description=self._fmt_description(p[2],p[3]), first='') for p in self.profiles ]
             temp_keys[0]['first'] = self.first_template
             text = ''.join([ self.input_template.format(**tk) for tk in temp_keys ])
             return self.form_template.format(input_template=text,
