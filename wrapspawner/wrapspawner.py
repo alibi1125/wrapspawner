@@ -238,13 +238,14 @@ class ProfilesSpawner(WrapSpawner):
             the result of formatting input_template against each item in the profiles list."""
         )
 
-    first_template = Unicode('selected',
+    first_template = Unicode(
+        "selected",
         config=True,
         help="Text to substitute as {first} in input_template"
         )
 
-    input_template = Unicode("""
-        <option value="{key}" title="{tooltip}" {first}>{display}</option>""",
+    input_template = Unicode(
+        """<option value="{key}" title="{tooltip}" {first}>{display}</option>""",
         config = True,
         help = """Template to construct {input_template} in form_template. This text will be formatted
             against each item in the profiles list, in order, using the following key names:
@@ -253,32 +254,34 @@ class ProfilesSpawner(WrapSpawner):
             the first item starts selected."""
         )
 
-    tooltip_template = Unicode("""
-        {spawner} profile settings are {options}""",
+    tooltip_template = Unicode(
+        """{spawner} profile settings are {options}""",
         config = True,
         help = """Template to construct {tooltip} in input_template. Expects both spawner and options to be
             simple strings, prepared by the caller."""
         )
-    
+
     tooltip_options_preprocessor = Callable(
         config = True,
         help = """A function that takes a child spawner`s options dict and generates a simple, human-readable
         string out of it, to be used when formatting tooltip_template."""
-    )
-    
+        )
+
     @default("tooltip_options_preprocessor")
-    def _prep_tooltip(self, options):
-        # The following line generates a list of strings in the form "<key>: <value>" from a given options dict.
-        # Furthermore, it removes 'req_' from the beginning of an option key if applicable and removes elements
-        # with empty values.
-        option_elements = [ f"{k[4:] if k.startswith('req_') else k}: {v}" for k, v in options.items() if v ]
-        return ", ".join(option_elements)
+    def _tooltip_options_preprocessor_default(self):
+        def _prep_tooltip(options):
+            # The following line generates a list of strings in the form "<key>: <value>" from a given options dict.
+            # Furthermore, it removes 'req_' from the beginning of an option key if applicable and removes elements
+            # with empty values.
+            option_elements = [ f"{k[4:] if k.startswith('req_') else k}: {v}" for k, v in options.items() if v ]
+            return ", ".join(option_elements)
+        return _prep_tooltip
     
     def _prep_form_template(self):
         temp_keys = []
         for p in self.profiles:
             opts_tooltip = self.tooltip_options_preprocessor(p[3])
-            tooltip = self.tooltip_template.format(spawner=p[2], options=opts_tooltip)
+            tooltip = self.tooltip_template.format(spawner=p[2].__name__, options=opts_tooltip)
             temp_keys.append( dict(display=p[0], key=p[1], type=p[2], tooltip=tooltip, first="") )
         temp_keys[0]["first"] = self.first_template
         return "".join([ self.input_template.format(**tk) for tk in temp_keys ])
@@ -370,7 +373,7 @@ class ImportedProfilesSpawner(ProfilesSpawner):
         "/etc/jupyterhub/common_profiles.json",
         config=True,
         help="Path to a JSON file containing common profiles, to be offered to every user."
-    )
+        )
 
     home_base_dir = Unicode(
         "",
@@ -378,7 +381,7 @@ class ImportedProfilesSpawner(ProfilesSpawner):
         help="If set, this is used as base of the home directory. Use to override the home directory " \
         "returned by getpwnam, e.g. for local users vs. LDAP users. User home directory default " \
         "path is then constructed as `home_base_dir + self.user.name`."
-    )
+        )
 
     # Useful IF getpwnam on submit host returns correct info for exec host
     homedir = Unicode()
@@ -398,7 +401,7 @@ class ImportedProfilesSpawner(ProfilesSpawner):
         config=True,
         help="Name of the subdirectory to put in the user's working directory. All files necessary "
         "for the Spawners' correct operation will be placed there.",
-    )
+        )
 
     user_profiles_loc = Unicode()
 
@@ -495,7 +498,7 @@ class ServiceProfilesSpawner(ProfilesSpawner):
         "http://127.0.0.1:8003/services/jupyterhub_profile_tool/",
         config = True,
         help = "URL under which the profile service serves the user profiles."
-    )
+        )
 
     form_template = Unicode(
         """<label for="profile">Select a job profile:</label>
@@ -512,7 +515,7 @@ class ServiceProfilesSpawner(ProfilesSpawner):
         config = True,
         help = """Template to use to construct options_form text. {input_template} is replaced with
             the result of formatting input_template against each item in the profiles list."""
-    )
+        )
 
     reload_script = Unicode(
         """<script>
@@ -526,14 +529,14 @@ class ServiceProfilesSpawner(ProfilesSpawner):
         config = True,
         help = """Script snippet to reload spawn page. Should only be included when the profiles fetch is not
             finished yet at rendering time."""
-    )
+        )
 
     token_ttl = Int(
         300,
         config = True,
         help = """Time to live for the user token, in seconds. The time a user token as generated by this
             Spawner shall be valid. The Spawner will auto-generate another as necessary."""
-    )
+        )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -656,7 +659,7 @@ class DockerProfilesSpawner(ProfilesSpawner):
         default_value = {},
         config = True,
         help = "Args to pass to DockerSpawner."
-    )
+        )
 
     jupyterhub_docker_tag_re = re.compile('^.*jupyterhub$')
 
