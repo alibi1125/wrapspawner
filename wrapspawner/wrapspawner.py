@@ -35,7 +35,7 @@ from jupyterhub.spawner import LocalProcessSpawner, Spawner
 from jupyterhub.utils import maybe_future
 
 from traitlets import (
-    Instance, Type, Tuple, List, Dict, Unicode, Any, Int
+    Instance, Type, Tuple, List, Dict, Unicode, Any, Int, Callable
 )
 from traitlets import directional_link, validate, TraitError, default
 
@@ -244,7 +244,7 @@ class ProfilesSpawner(WrapSpawner):
         )
 
     input_template = Unicode("""
-        <option value="{key}" title="{description}" {first}>{display}</option>""",
+        <option value="{key}" title="{tooltip}" {first}>{display}</option>""",
         config = True,
         help = """Template to construct {input_template} in form_template. This text will be formatted
             against each item in the profiles list, in order, using the following key names:
@@ -252,15 +252,39 @@ class ProfilesSpawner(WrapSpawner):
             first = "checked" (taken from first_template) for the first item in the list, so that
             the first item starts selected."""
         )
+
+    tooltip_template = Unicode("""
+        {spawner} profile settings are {options}""",
+        config = True,
+        help = """Template to construct {tooltip} in input_template. Expects both spawner and options to be
+            simple strings, prepared by the caller."""
+        )
     
-    def _fmt_description(self, spawner, options):
+    tooltip_options_preprocessor = Callable(
+        config = True,
+        help = """A function that takes a child spawner`s options dict and generates a simple, human-readable
+        string out of it, to be used when formatting tooltip_template."""
+    )
+    
+    @default("tooltip_options_preprocessor")
+    def _prep_tooltip(self, options):
+        # The following line generates a list of strings in the form "<key>: <value>" from a given options dict.
+        # Furthermore, it removes 'req_' from the beginning of an option key if applicable and removes elements
+        # with empty values.
         option_elements = [ f"{k[4:] if k.startswith('req_') else k}: {v}" for k, v in options.items() if v ]
-        return f"{spawner.__name__}, profile settings {', '.join(option_elements)}"
+        return ", ".join(option_elements)
+    
+    def _prep_form_template(self):
+        temp_keys = []
+        for p in self.profiles:
+            opts_tooltip = self.tooltip_options_preprocessor(p[3])
+            tooltip = self.tooltip_template.format(spawner=p[2], options=opts_tooltip)
+            temp_keys.append( dict(display=p[0], key=p[1], type=p[2], tooltip=tooltip, first="") )
+        temp_keys[0]["first"] = self.first_template
+        return "".join([ self.input_template.format(**tk) for tk in temp_keys ])
 
     def _options_form_default(self):
-        temp_keys = [ dict(display=p[0], key=p[1], type=p[2], description=self._fmt_description(p[2],p[3]), first='') for p in self.profiles ]
-        temp_keys[0]['first'] = self.first_template
-        text = ''.join([ self.input_template.format(**tk) for tk in temp_keys ])
+        text = self._prep_form_template()
         return self.form_template.format(input_template=text)
 
     def options_from_form(self, formdata):
@@ -432,12 +456,10 @@ class ImportedProfilesSpawner(ProfilesSpawner):
     # Overload options_form default to make it callable. This ensures every time the spawner options site is re-rendered, the form gets updated.
     @default("options_form")
     def _options_form_default(self):
-        def render_option_form(self):
-            temp_keys = [ dict(display=p[0], key=p[1], type=p[2], description=self._fmt_description(p[2],p[3]), first='') for p in self.profiles ]
-            temp_keys[0]['first'] = self.first_template
-            text = ''.join([ self.input_template.format(**tk) for tk in temp_keys ])
+        def render_options_form(self):
+            text = self._prep_form_template()
             return self.form_template.format(input_template=text)
-        return render_option_form
+        return render_options_form
 
 # Helpers for ServiceProfilesSpawner
 class FetchState(Enum):
@@ -587,12 +609,13 @@ class ServiceProfilesSpawner(ProfilesSpawner):
     # Overload options_form to make it callable. This ensures every time the spawner options site is re-rendered, the form gets updated.
     @default("options_form")
     def _default_options_form(self):
-        def _render_options_form(self):
+        def render_options_form(self):
             # Fetch state follows a three step process. When options_form is called, we therefore have three behaviours:
             # 1. If fetch state is INACTIVE, start the fetch. _get_profiles will set the fetch state to WORKING. Also prepare to reload the spawner page.
             # 2. If fetch state is WORKING, simply continue to wait on results and prepare to reload the spawner page.
             # 3. If fetch state is COMPLETE, stop reloading. Also reset state to INACTIVE, so when the page reloads, we start over.
-            #    The next call will only occur if the user reloads or is following a link back to the spawner page, so without interaction, we stay INACTIVE.
+            #    The next call will only happen when the user manually reloads or is following a link back to the spawner page,
+            #    so without interaction, we stay INACTIVE.
             match self._profiles_fetch:
                 case FetchState.INACTIVE:
                     self.profiles = [ ( "Loading profiles...", "invalid", LocalProcessSpawner, {} ) ]
@@ -603,13 +626,11 @@ class ServiceProfilesSpawner(ProfilesSpawner):
                 case FetchState.COMPLETE:
                     reload_script = ""
                     self._profiles_fetch = FetchState.INACTIVE
-            temp_keys = [ dict(display=p[0], key=p[1], type=p[2], description=self._fmt_description(p[2],p[3]), first='') for p in self.profiles ]
-            temp_keys[0]['first'] = self.first_template
-            text = ''.join([ self.input_template.format(**tk) for tk in temp_keys ])
+            text = self._prep_form_template()
             return self.form_template.format(input_template=text,
                                              profiles_service_url=self.profiles_service_url,
                                              reload_script=reload_script)
-        return _render_options_form
+        return render_options_form
 
 class DockerProfilesSpawner(ProfilesSpawner):
 
