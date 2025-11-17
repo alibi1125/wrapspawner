@@ -66,15 +66,13 @@ class WrapSpawner(Spawner):
 
     child_class = Type(LocalProcessSpawner,
         Spawner,
-        config=True,
-        help="""The class to wrap for spawning single-user servers.
-                Should be a subclass of Spawner.
-                """
+        config = True,
+        help = "The class to wrap for spawning single-user servers. Should be a subclass of Spawner."
         )
 
     child_config = Dict(default_value={},
-        config=True,
-        help="Dictionary of config values to apply to wrapped spawner class."
+        config = True,
+        help = "Dictionary of config values to apply to wrapped spawner class."
         )
 
     child_state = Dict(default_value={})
@@ -240,8 +238,8 @@ class ProfilesSpawner(WrapSpawner):
 
     first_template = Unicode(
         "selected",
-        config=True,
-        help="Text to substitute as {first} in input_template"
+        config = True,
+        help = "Text to substitute as {first} in input_template"
         )
 
     input_template = Unicode(
@@ -264,7 +262,7 @@ class ProfilesSpawner(WrapSpawner):
     tooltip_options_preprocessor = Callable(
         config = True,
         help = """A function that takes a child spawner`s options dict and generates a simple, human-readable
-        string out of it, to be used when formatting tooltip_template."""
+            string out of it, to be used when formatting tooltip_template."""
         )
 
     @default("tooltip_options_preprocessor")
@@ -281,7 +279,10 @@ class ProfilesSpawner(WrapSpawner):
         temp_keys = []
         for p in self.profiles:
             opts_tooltip = self.tooltip_options_preprocessor(p[3])
-            tooltip = self.tooltip_template.format(spawner=p[2].__name__, options=opts_tooltip)
+            if opts_tooltip:
+                tooltip = self.tooltip_template.format(spawner=p[2].__name__, options=opts_tooltip)
+            else:
+                tooltip = ""
             temp_keys.append( dict(display=p[0], key=p[1], type=p[2], tooltip=tooltip, first="") )
         temp_keys[0]["first"] = self.first_template
         return "".join([ self.input_template.format(**tk) for tk in temp_keys ])
@@ -371,16 +372,16 @@ class ImportedProfilesSpawner(ProfilesSpawner):
 
     common_profiles_loc = Unicode(
         "/etc/jupyterhub/common_profiles.json",
-        config=True,
-        help="Path to a JSON file containing common profiles, to be offered to every user."
+        config = True,
+        help = "Path to a JSON file containing common profiles, to be offered to every user."
         )
 
     home_base_dir = Unicode(
         "",
-        config=True,
-        help="If set, this is used as base of the home directory. Use to override the home directory " \
-        "returned by getpwnam, e.g. for local users vs. LDAP users. User home directory default " \
-        "path is then constructed as `home_base_dir + self.user.name`."
+        config = True,
+        help = """If set, this is used as base of the home directory. Use to override the home directory
+            returned by getpwnam, e.g. for local users vs. LDAP users. User home directory default path is
+            then constructed as `home_base_dir + self.user.name`."""
         )
 
     # Useful IF getpwnam on submit host returns correct info for exec host
@@ -398,9 +399,9 @@ class ImportedProfilesSpawner(ProfilesSpawner):
 
     user_subdir_path = Unicode(
         ".jupyterhub",
-        config=True,
-        help="Name of the subdirectory to put in the user's working directory. All files necessary "
-        "for the Spawners' correct operation will be placed there.",
+        config = True,
+        help = """Name of the subdirectory to put in the user's working directory. All files necessary
+            for the Spawners' correct operation will be placed there."""
         )
 
     user_profiles_loc = Unicode()
